@@ -11,6 +11,7 @@
 import os
 import re
 import string
+import time
 # data
 import numpy as np
 import pandas as pd
@@ -39,6 +40,9 @@ from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 # pre_tools
 from pre_tools.load_data_tweets import return_data
+# warnings
+# import warnings
+# warnings.filterwarnings("ignore")
 
 # PARAMS
 # WORD2VECgensim
@@ -127,7 +131,7 @@ batch_size = BATCH_SIZE
 
 # make sure to SHUFFLE your data
 train_loader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
-valid_loader = DataLoader(valid_data, shuffle=True, batch_size=batch_size)
+valid_loader = DataLoader(valid_data, shuffle=True, batch_size=2)
 
 # dataiter = iter(train_loader)
 # sample_x, sample_y = dataiter.next()
@@ -153,6 +157,7 @@ class Model(nn.Module):
 
     def forward(self, text):
         # text [sentence length, batch_size]
+        text = torch.tensor(text).to(device).long()
         embedded = self.embedding(text)
         # embedded = [sentence length, batch_size, emb dim]
         # what are the output and hidden  ? https://www.pianshen.com/article/6959294754/
@@ -170,6 +175,7 @@ def train():
     hidden_dim = 300
     batch_size = 100
     epochs = EPOCHS
+    # epochs = 1
     vocab_size = len(tokenizer.word_index) + 1
     output_dim = 1
 
@@ -179,3 +185,132 @@ def train():
     # device
     model = model.to(device)
 
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-2)
+
+    # validate loss
+    loss_val = np.ones((epochs, 1)) * np.inf
+
+    # train
+    for epoch in range(epochs):
+
+        running_loss = 0.0
+        running_accuracy = 0.0
+        t = time.time()
+
+        for i, data in enumerate(train_loader):
+            sample_x, sample_y = data
+
+            # LongTensor
+            train_x = sample_x.type(torch.LongTensor)
+            # FloatTensor
+            train_y = sample_y.type(torch.FloatTensor)
+
+            # device
+            train_x = train_x.to(device).long()
+            train_y = train_y.to(device)
+
+            # output
+            output = model(train_x)
+
+            # change demintion
+            train_y = train_y.view(-1, 1)
+
+            # loss
+            loss = criterion(output, train_y)
+            accuracy = ((output > 0.5).type(torch.uint8) == train_y).float().mean().item()
+
+            # running
+            running_loss += loss.item()
+            running_accuracy += accuracy
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            elapsed = time.time() - t
+
+            print("Errors for epoch %d, batch %d loss: %f, accuracy : %f ,  took time: %f" % (epoch, i, loss.item(),
+                                                                                              accuracy, elapsed))
+
+            # each 20
+            if i == 20:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 20,
+                                                                               running_accuracy/20)))
+                running_loss = 0.0
+                running_accuracy =0.0
+
+
+        # validate  valid_loader
+        va_len = len(valid_loader)
+        loss_test = np.ones((va_len, 1))
+
+        for i,data in enumerate(valid_loader):
+            sample_x, sample_y = data
+
+            # LongTensor
+            test_x = sample_x.type(torch.LongTensor)
+            # FloatTensor
+            test_y = sample_y.type(torch.FloatTensor)
+
+            # device
+            test_x = test_x.to(device).long()
+            test_y = test_y.to(device)
+
+            # output
+            output = model(test_x)
+
+            # change demintion
+            test_y = test_y.view(-1, 1)
+
+            # loss
+            loss = criterion(output, test_y)
+            loss_test[i] = loss.detach().cpu().numpy()
+
+        loss_val[epoch] = np.mean(loss_test)
+        # save model if it reduces the loss
+        if loss_val[epoch] == np.min(loss_val):
+            torch.save(model.state_dict(), MODEL_PATH)
+
+        print("Validation errors for epoch %d: %f ,  took time: %f" % (epoch, loss_val[epoch], elapsed))
+
+
+# evaluate
+def evaluate(text_list):
+    # model params
+    input_size = 300
+    hidden_dim = 300
+    batch_size = 100
+    output_dim = 1
+
+    # load model
+    model = Model(input_size,hidden_dim,batch_size,vocab_size,output_dim)
+    model.load_state_dict(torch.load(MODEL_PATH))
+    model.to(device)
+
+    # tokinizer
+    test = pad_sequences(tokenizer.texts_to_sequences(text_list), maxlen=SEQUENCE_LENGTH)
+    test = torch.from_numpy(test)
+    # batch generate
+    def get_batches(X, n_batches=20):
+        batch_size = len(X) // n_batches
+        for i in range(0, n_batches * batch_size, batch_size):
+            if i != (n_batches - 1) * batch_size:
+                x = X[i:i + n_batches]
+            else:
+                x = X[i:]
+            yield x
+    # evaluate
+    if len(test)//batch_size > 0:
+        for i, x in enumerate(get_batches(test, batch_size)):
+            outputs = model(x)
+
+    else:
+        outputs = model(test)
+    for i in range(len(outputs)):
+        print(f"{text_list[i]}   :  {float(outputs[i])}")
+
+
+# Main
+if __name__ == "__main__":
+    train()
+    evaluate(["fuck you bitch"])

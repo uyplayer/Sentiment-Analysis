@@ -65,7 +65,7 @@ NEGATIVE = "NEGATIVE"
 NEUTRAL = "NEUTRAL"
 SENTIMENT_THRESHOLDS = (0.4, 0.7)
 # MODEL PATH
-MODEL_PATH = "../model_files/Sentiment140 dataset with 1.6 million tweets/Lstm_tweets.pth"
+MODEL_PATH = "./model_files/Sentiment140 dataset with 1.6 million tweets/Lstm_tweets.pth"
 
 # GPU check
 # device = torch.device("cpu")
@@ -223,7 +223,8 @@ def train():
     hidden_dim = 300
     LSTM_layers = 2
     batch_size = 100
-    epochs = 1
+    epochs = EPOCHS
+    # epochs = 1
     vocab_size = len(tokenizer.word_index) + 1
 
     model = Model(input_size,hidden_dim,LSTM_layers,batch_size,vocab_size)
@@ -239,8 +240,11 @@ def train():
 
     # train
     for epoch in range(epochs):
+
         running_loss = 0.0
+        running_accuracy = 0.0
         t = time.time()
+
         for i, (train_x, train_y) in enumerate(get_batches(x_train, y_train, batch_size)):
 
             # LongTensor
@@ -252,18 +256,31 @@ def train():
             train_x = train_x.to(device).long()
             train_y = train_y.to(device)
             output = model(train_x)
+
+            train_y = train_y.view(-1, 1)
+
             # loss
             loss = criterion(output, train_y)
+            accuracy = ((output > 0.5).type(torch.uint8) == train_y).float().mean().item()
+
+            # running
+            running_loss += loss.item()
+            running_accuracy += accuracy
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             elapsed = time.time() - t
-            print("Errors for epoch %d, batch %d: %f,  took time: %f" % (epoch, i, loss.item(), elapsed))
 
-            # each 1000
-            if i == 1000:
-                print("[%d, %5d] loss: %.3f"%( (epoch + 1, i + 1, running_loss / 1000)))
+            print("Errors for epoch %d, batch %d loss: %f, accuracy : %f ,  took time: %f" % (epoch, i, loss.item(),
+                                                                                         accuracy, elapsed))
+
+            # each 20
+            if i == 20:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 20,
+                                                                               running_accuracy / 20)))
                 running_loss = 0.0
+                running_accuracy = 0.0
 
 
         # validate x_test,y_test
@@ -278,9 +295,8 @@ def train():
             y_t = y_test[n_val]
             y_t = y_t.to(device)
             result = criterion(y_out, y_t)
-            loss_test[n_val] = result.cpu().data.numpy().argmax()
+            loss_test[n_val] = result.detach().cpu().numpy()
         loss_val[epoch] = np.mean(loss_test)
-
         # save model if it reduces the loss
         if loss_val[epoch] == np.min(loss_val):
             torch.save(model.state_dict(), MODEL_PATH)
@@ -314,7 +330,7 @@ def evaluate(text_list):
                 x = X[i:]
             yield x
     # evaluate
-    if len(test)//batch_size>0:
+    if len(test)//batch_size > 0:
         for i, x in enumerate(get_batches(test, batch_size)):
             outputs = model(x)
 
@@ -328,6 +344,6 @@ def evaluate(text_list):
 # Main
 if __name__ == "__main__":
     train()
-    evaluate(["I love playing game"])
+    evaluate(["I love playing game","i can not play game"])
 
 
