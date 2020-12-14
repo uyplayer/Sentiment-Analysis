@@ -34,7 +34,7 @@ from nltk.stem import SnowballStemmer
 from sklearn.model_selection import train_test_split
 
 # root path
-FILE = "./datasets/English/Sentiment140 dataset with 1.6 million tweets/training.1600000.processed.noemoticon.csv"
+FILE = "../datasets/English/Sentiment140 dataset with 1.6 million tweets/training.1600000.processed.noemoticon.csv"
 
 # params  DATASET
 DATASET_COLUMNS = ["target", "ids", "date", "flag", "user", "text"]

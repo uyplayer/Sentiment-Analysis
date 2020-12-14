@@ -70,9 +70,9 @@ print(" device is ",device)
 if is_available:
     print(" GPU is avaliable")
     num_gpu = torch.cuda.device_count()
-    print(" number of GPU is ",num_gpu)
+    print(" number of GPU is : ",num_gpu)
     current_gpu = torch.cuda.current_device()
-    print(" current_gpu is ", current_gpu)
+    print(" current_gpu is : ", current_gpu)
 
 else:
     print(" GPU is not avaliable ")
