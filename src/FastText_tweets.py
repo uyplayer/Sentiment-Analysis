@@ -269,7 +269,8 @@ class Model(nn.Module):
         self.fc1 = nn.Linear(self.hidden_dim, self.output_dim)
 
     def forward(self, text):
-        text = torch.tensor(text).to(device).long()
+        text = text.clone().detach()
+        text = text.to(device).long()
         embedding = self.embedding(text)
         GlobalAveragePooling1D = torch.mean(embedding,dim=1)
         out = self.fc1(GlobalAveragePooling1D)

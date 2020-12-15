@@ -193,7 +193,8 @@ class Model(nn.Module):
         torch.nn.init.xavier_normal_(h)
         torch.nn.init.xavier_normal_(c)
         # Each sequence "x" is passed through an embedding layer
-        x = torch.tensor(x).to(device).long()
+        x = x.clone().detach()
+        x = x.to(device).long()
         out = self.embedding(x)
         # Feed LSTMs
         out, (hidden, cell) = self.lstm(out, (h, c))

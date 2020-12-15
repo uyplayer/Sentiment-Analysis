@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# @Time    : 2020/12/2 15:17
+# @Time    : 2020/12/15 9:44
 # @Author  : uyplayer
 # @Site    : uyplayer.pw
-# @File    : Rnn-tweets.py
+# @File    : Cnn_tweets.py
 # @Software: PyCharm
 
 # dependency library
+from __future__ import print_function
 # system
 import os
 import re
@@ -25,6 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
+from torchsummary import summary
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data import TensorDataset, DataLoader
@@ -45,12 +47,13 @@ from pre_tools.load_data_tweets import return_data
 # warnings.filterwarnings("ignore")
 
 # PARAMS
-# WORD2VEC
-W2V_SIZE = 300
-W2V_WINDOW = 7
-W2V_EPOCH = 32
-W2V_MIN_COUNT = 10
 # KERAS
+INPUT_CHANNEL_1 = 1
+OUTPUT_CHANNEL_1 = 2
+INPUT_CHANNEL_2 = 2
+OUTPUT_CHANNEL_2 = 4
+EMBED_DIM = 300
+VOCAB_SIZE = 0
 SEQUENCE_LENGTH = 300
 EPOCHS = 50
 BATCH_SIZE = 1024
@@ -59,14 +62,15 @@ POSITIVE = "POSITIVE"
 NEGATIVE = "NEGATIVE"
 NEUTRAL = "NEUTRAL"
 SENTIMENT_THRESHOLDS = (0.4, 0.7)
+
 # MODEL PATH
-MODEL_PATH = "./model_files/Sentiment140 dataset with 1.6 million tweets/Rnn_tweets.pth"
+MODEL_PATH = "../model_files/Sentiment140 dataset with 1.6 million tweets/Cnn_tweets.pth"
 
 # GPU check
 # device = torch.device("cpu")
 is_available = torch.cuda.is_available()
 device = torch.device("cuda:0" if is_available else "cpu")
-print(" device is ",device)
+print(" device is : ",device)
 if is_available:
     print(" GPU is avaliable")
     num_gpu = torch.cuda.device_count()
@@ -79,28 +83,13 @@ else:
 
 # get data
 train_x, train_y, test_x, test_y = return_data(rate=0.03)
-'''
-print(train_x.shape)
-print(train_y.shape)
-print(test_x.shape)
-print(test_y.shape)
-(38400,)
-(38400,)
-(9600,)
-(9600,)
-'''
-
-# convert to numpy
-# train_x = np.array(train_x)
-# train_y = np.array(train_y)
-# test_x = np.array(test_x)
-# test_y = np.array(test_y)
-
 
 # keras tokenizer
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(train_x)
 vocab_size = len(tokenizer.word_index) + 1
+# vocab size
+VOCAB_SIZE = vocab_size
 x_train = pad_sequences(tokenizer.texts_to_sequences(train_x), maxlen=SEQUENCE_LENGTH) # 300  word to index
 x_test = pad_sequences(tokenizer.texts_to_sequences(test_x), maxlen=SEQUENCE_LENGTH) # 300
 
@@ -133,60 +122,84 @@ batch_size = BATCH_SIZE
 train_loader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
 valid_loader = DataLoader(valid_data, shuffle=True, batch_size=2)
 
-# dataiter = iter(train_loader)
-# sample_x, sample_y = dataiter.next()
-#
-# print('Sample input size: ', sample_x.size()) # batch_size, seq_length
-# print('Sample input: \n', sample_x)
-# print('Sample input: \n', sample_y)
+dataiter = iter(train_loader)
+sample_x, sample_y = dataiter.next()
+# ([1024, 300])
+print('Sample input size: ', sample_x.size()) # batch_size, seq_length
+print('Sample input: \n', sample_x.size())
+print('Sample input[0]: \n', sample_x[0].size())
+print('Sample input: \n', sample_y)
 
 # my model
 class Model(nn.Module):
-    def __init__(self,input_size,hidden_dim,batch_size,vocab_size,output_dim):
+
+    def __init__(self,vocab_size,embed_dim,input_channel_1,output_channel_1,input_channel_2,output_channel_2):
         super(Model, self).__init__()
 
-        self.input_size = input_size
-        self.hidden_dim = hidden_dim
-        self.batch_size = batch_size
         self.vocab_size = vocab_size
-        self.output_dim = output_dim
+        self.embed_dim = embed_dim
+        self.input_channel_1 = input_channel_1
+        self.output_channel_1 = output_channel_1
+        self.input_channel_2 = input_channel_2
+        self.output_channel_2 = output_channel_2
 
-        self.embedding = nn.Embedding(self.vocab_size, self.hidden_dim)
-        self.rnn = nn.RNN(self.input_size, self.hidden_dim)
-        self.fc = nn.Linear(self.input_size, output_dim)
+        # archetecture
+        self.embed = nn.Embedding(self.vocab_size, self.embed_dim)
+        self.conv1 = nn.Conv2d(self.input_channel_1, self.output_channel_1, 3, stride=3) # kernel_size =3;stride=3
+        # ;padding=0;dilation=1
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(self.input_channel_2, self.output_channel_2, 3, stride=3)
+        self.fc1 = nn.Linear(4 * 8 * 8, 1)
 
-    def forward(self, text):
-        # text [sentence length, batch_size]
-        text = text.clone().detach()
-        text = text.to(device).long()
-        embedded = self.embedding(text)
-        # embedded = [sentence length, batch_size, emb dim]
-        # what are the output and hidden  ? https://www.pianshen.com/article/6959294754/
-        # hidden is last hiden state ; output is the rnn output
-        output, hidden = self.rnn(embedded)
-        # output = [sent len, batch_size, hid dim]
-        # hidden = [1, batch_size, hid dim]
-        assert torch.equal(output[-1, :, :], hidden.squeeze(0))
-        return self.fc(output[:, -1, :])
+    def forward(self, x):
+        # x:torch.Size([1, 300])
+        x = x.clone().detach()
+        x = x.to(device).long()
+        x = self.embed(x) # torch.Size([1, 300, 300])
+
+        x = x.view(x.shape[0],-1,x.shape[1],x.shape[1]) # torch.Size([1, 1, 300, 300])
+
+        x = self.conv1(x)  # (1024,2, 100,100)
+        x = self.pool(F.relu(x))  # (1024,2, 50,50)
+        x = self.conv2(x)  # (1024,4, 16,18)
+        x = F.dropout(x, p=0.5)
+        x = self.pool(F.relu(x))  #(1024,4, 8,8)
+        x = x.view(-1, 4 * 8 * 8) # 256
+        x = self.fc1(x)
+        return x
+
+# summary
+# vocab_size = VOCAB_SIZE
+# embed_dim = EMBED_DIM
+# input_channel_1 = INPUT_CHANNEL_1
+# output_channel_1 = OUTPUT_CHANNEL_1
+# input_channel_2 = INPUT_CHANNEL_2
+# output_channel_2 = OUTPUT_CHANNEL_2
+# x = torch.ones(100,300)
+# model = Model(vocab_size,embed_dim,input_channel_1,output_channel_1,input_channel_2,output_channel_2)
+# model.to(device)
+# # summary(model,input_size=(1, 300))
+# print(model(x))
 
 # training
 def train():
 
-    input_size = 300
-    hidden_dim = 300
-    batch_size = 100
+    vocab_size = VOCAB_SIZE
+    embed_dim = EMBED_DIM
+    input_channel_1 = INPUT_CHANNEL_1
+    output_channel_1 = OUTPUT_CHANNEL_1
+    input_channel_2 = INPUT_CHANNEL_2
+    output_channel_2 = OUTPUT_CHANNEL_2
+    batch_size = BATCH_SIZE
     epochs = EPOCHS
-    # epochs = 1
-    vocab_size = len(tokenizer.word_index) + 1
-    output_dim = 1
 
-    # model  input_size,hidden_dim,batch_size,vocab_size,output_dim)
-    model = Model(input_size,hidden_dim,batch_size,vocab_size,output_dim)
+    # model
+    model = Model(vocab_size, embed_dim, input_channel_1, output_channel_1, input_channel_2, output_channel_2)
 
     # device
     model = model.to(device)
 
-    criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss()
     optimizer = optim.Adam(model.parameters(), lr=1e-2)
 
     # validate loss
@@ -200,6 +213,7 @@ def train():
         t = time.time()
 
         for i, data in enumerate(train_loader):
+
             sample_x, sample_y = data
 
             # LongTensor
@@ -236,10 +250,9 @@ def train():
             # each 20
             if i == 20:
                 print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 20,
-                                                                               running_accuracy/20)))
+                                                                               running_accuracy / 20)))
                 running_loss = 0.0
-                running_accuracy =0.0
-
+                running_accuracy = 0.0
 
         # validate  valid_loader
         va_len = len(valid_loader)
@@ -273,18 +286,19 @@ def train():
             torch.save(model.state_dict(), MODEL_PATH)
 
         print("Validation errors for epoch %d: %f ,  took time: %f" % (epoch, loss_val[epoch], elapsed))
-
-
 # evaluate
 def evaluate(text_list):
     # model params
-    input_size = 300
-    hidden_dim = 300
-    batch_size = 100
-    output_dim = 1
+    vocab_size = VOCAB_SIZE
+    embed_dim = EMBED_DIM
+    input_channel_1 = INPUT_CHANNEL_1
+    output_channel_1 = OUTPUT_CHANNEL_1
+    input_channel_2 = INPUT_CHANNEL_2
+    output_channel_2 = OUTPUT_CHANNEL_2
+    batch_size = BATCH_SIZE
 
-    # load model
-    model = Model(input_size,hidden_dim,batch_size,vocab_size,output_dim)
+    # model
+    model = Model(vocab_size, embed_dim, input_channel_1, output_channel_1, input_channel_2, output_channel_2)
     model.load_state_dict(torch.load(MODEL_PATH))
     model.to(device)
 
@@ -312,8 +326,7 @@ def evaluate(text_list):
         for i in range(len(outputs)):
             print(f"{text_list[i]}   :  {float(outputs[i])}")
 
-
 # Main
 if __name__ == "__main__":
     train()
-    evaluate(["fuck you bitch"])
+    evaluate(["I love you", "I want to hit someone"])
