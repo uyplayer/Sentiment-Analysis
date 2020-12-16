@@ -198,7 +198,6 @@ class Model(nn.Module):
         out = self.embedding(x)
         # Feed LSTMs
         out, (hidden, cell) = self.lstm(out, (h, c))
-        out = self.dropout(out)
         # The last hidden state is taken
         out = torch.relu_(self.fc1(out[:, -1, :]))
         out = self.dropout(out)
