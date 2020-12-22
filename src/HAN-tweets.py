@@ -45,8 +45,8 @@ from keras.preprocessing.sequence import pad_sequences
 # pre_tools
 from pre_tools.load_data_tweets import return_data
 # warnings
-# import warnings
-# warnings.filterwarnings("ignore")
+import warnings
+warnings.filterwarnings("ignore")
 
 # PARAMS
 # WORD2VEC
