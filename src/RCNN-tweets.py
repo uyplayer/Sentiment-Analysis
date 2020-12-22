@@ -109,8 +109,8 @@ encoder.fit(train_y.tolist())
 y_train = encoder.transform(train_y.tolist())
 y_test = encoder.transform(test_y.tolist())
 # convert to [] mode
-y_train = [[1, 0] if item==1 else [0, 1] for item in y_train]
-y_test = [[1, 0] if item==1 else [0, 1] for item in y_test]
+y_train = [[0, 1] if item == 1 else [1, 0] for item in y_train]
+y_test = [[0, 1] if item == 1 else [1, 0] for item in y_test]
 # convert to numpy
 y_train = np.array(y_train)
 y_test = np.array(y_test)
@@ -458,11 +458,15 @@ def evaluate(text_list):
     if len(test) // batch_size > 0:
         for i, x in enumerate(get_batches(test, batch_size)):
             outputs = model(x)
+            _, outputs = torch.max(outputs,1)
+            outputs = outputs.detach().cpu().numpy()
             for i in range(len(outputs)):
                 print(f"{text_list[i]}   :  {float(outputs[i])}")
 
     else:
         outputs = model(test)
+        _, outputs = torch.max(outputs,1)
+        outputs = outputs.detach().cpu().numpy()
         for i in range(len(outputs)):
             print(f"{text_list[i]}   :  {float(outputs[i])}")
 
