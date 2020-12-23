@@ -59,8 +59,7 @@ parser.add_argument('-embed_dim', '--embedding_dim', type=int, default=300, help
 parser.add_argument('-mf', '--model_path',type=str,default='../model_files/Sentiment140 dataset with 1.6 million '
                                                            'tweets/RCNN_tweets.pth', help='model file saving dir')
 parser.add_argument('-ct', '--cell_type',type=str,default='LSTM', help='cell type RNN LSTM GRU')
-parser.add_argument("--context_embedding_dim", type=int, default=512, help="Dimensionality of context embedding(= RNN state size)  (Default: 512)")
-parser.add_argument("--hidden_size", type=int, default=512, help="Size of hidden layer (Default: 512)")
+parser.add_argument("--hidden_size", type=int, default=300, help="Size of hidden layer (Default: 512)")
 parser.add_argument("--input_size", type=int,default=300, help="input_size of cell")
 parser.add_argument("--dropout_keep_prob", type=float, default=0.7, help="Dropout keep probability (Default: 0.7)")
 parser.add_argument("--l2_reg_lambda", type=float, default=0.5, help="L2 regularization lambda (Default: 0.5)")
@@ -119,7 +118,6 @@ y_test = np.array(y_test)
 print(" processing train and test ")
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(train_x)
-vocab_size = len(tokenizer.word_index) + 1
 x_train = pad_sequences(tokenizer.texts_to_sequences(train_x), maxlen=args.sequence_length) # 100
 x_test = pad_sequences(tokenizer.texts_to_sequences(test_x), maxlen=args.sequence_length) # 100
 
@@ -199,7 +197,7 @@ class Model(nn.Module):
         # sigmoig/softmax
         self.sf = nn.Softmax(dim=1)
 
-    def forward(self,text):
+    def forward(self, text):
 
         text = text.clone().detach()
         text = text.to(device).long()
@@ -474,4 +472,4 @@ def evaluate(text_list):
 # Main
 if __name__ == "__main__":
     # train()
-    evaluate(["I love you", "I want to hit someone"])
+    evaluate(["I love you", "I want to hit someone", "fuck you bitch"])
