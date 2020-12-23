@@ -398,7 +398,6 @@ def evaluate(text_list):
     dropout = args.dropout
     batch_first = args.batch_first
     bias = args.bias
-    epochs = args.num_epochs
 
     # vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
     model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
