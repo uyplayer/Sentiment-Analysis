@@ -473,5 +473,5 @@ def evaluate(text_list):
 
 # Main
 if __name__ == "__main__":
-    train()
+    # train()
     evaluate(["I love you", "I want to hit someone"])
