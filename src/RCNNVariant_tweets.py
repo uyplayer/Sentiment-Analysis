@@ -240,30 +240,205 @@ class Model(nn.Module):
         return y
 
 # test model
-dataiter = iter(train_loader)
-sample_x, sample_y = dataiter.next()
-print(" sample_x.shape : ", sample_x.shape)
-print(" sample_y.shape : ", sample_y.shape)
+# dataiter = iter(train_loader)
+# sample_x, sample_y = dataiter.next()
+# print(" sample_x.shape : ", sample_x.shape)
+# print(" sample_y.shape : ", sample_y.shape)
+#
+# sequence_length = args.sequence_length
+# num_classes = args.num_classes
+# vocab_size = vocab_size
+# embedding_dim = args.embedding_dim
+# cell_type = args.cell_type
+# input_size = args.input_size
+# hidden_size = args.hidden_size
+# num_layers = args.num_layers
+# bidirectional = args.bidirectional
+# dropout = args.dropout
+# batch_first = args.batch_first
+# bias = args.bias
+#
+# # vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
+# model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
+#               hidden_size=hidden_size, num_layers=num_layers,
+#               bidirectional=bidirectional, dropout=dropout,
+#               batch_first=batch_first, bias=bias)
+#
+# model.to(device)
+#
+# print(model(sample_x))
 
-sequence_length = args.sequence_length
-num_classes = args.num_classes
-vocab_size = vocab_size
-embedding_dim = args.embedding_dim
-cell_type = args.cell_type
-input_size = args.input_size
-hidden_size = args.hidden_size
-num_layers = args.num_layers
-bidirectional = args.bidirectional
-dropout = args.dropout
-batch_first = args.batch_first
-bias = args.bias
+# training
+def train():
+    sequence_length = args.sequence_length
+    num_classes = args.num_classes
+    vocab_size = len(tokenizer.word_index) + 1
+    embedding_dim = args.embedding_dim
+    cell_type = args.cell_type
+    input_size = args.input_size
+    hidden_size = args.hidden_size
+    num_layers = args.num_layers
+    bidirectional = args.bidirectional
+    dropout = args.dropout
+    batch_first = args.batch_first
+    bias = args.bias
+    epochs = args.num_epochs
 
-# vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
-model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
-              hidden_size=hidden_size, num_layers=num_layers,
-              bidirectional=bidirectional, dropout=dropout,
-              batch_first=batch_first, bias=bias)
+    # vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
+    model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
+                  hidden_size=hidden_size, num_layers=num_layers,
+                  bidirectional=bidirectional, dropout=dropout,
+                  batch_first=batch_first, bias=bias)
 
-model.to(device)
+    # device
+    model = model.to(device)
 
-print(model(sample_x))
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    # validate loss
+    loss_val = np.ones((epochs, 1)) * np.inf
+
+    # train
+    for epoch in range(epochs):
+
+        running_loss = 0.0
+        running_accuracy = 0.0
+        t = time.time()
+
+        for i, data in enumerate(train_loader):
+            sample_x, sample_y = data
+
+            # LongTensor
+            train_x = sample_x.type(torch.LongTensor)
+            # FloatTensor
+            train_y = sample_y.type(torch.FloatTensor)
+
+            # device
+            train_x = train_x.to(device).long()
+            train_y = train_y.to(device)
+
+            # output
+            output = model(train_x)
+
+            # loss
+            loss = criterion(output, train_y)
+
+            _, out_index = torch.max(output, 1)
+            _, train_y_index = torch.max(train_y, 1)
+
+            out_index = out_index.detach().cpu().numpy()
+            train_y_index = train_y_index.detach().cpu().numpy()
+
+            # accuracy
+            accuracy = accuracy_score(train_y_index, out_index)
+
+            # running
+            running_loss += loss.item()
+            running_accuracy += accuracy
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            elapsed = time.time() - t
+
+            print("Errors for epoch %d, batch %d loss: %f, accuracy : %f ,  took time: %f" % (epoch, i, loss.item(),
+                                                                                              accuracy, elapsed))
+
+            # display_every
+            if i == args.display_every:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / args.display_every,
+                                                                               running_accuracy/args.display_every)))
+                running_loss = 0.0
+                running_accuracy = 0.0
+
+
+        # validate  valid_loader
+        va_len = len(valid_loader)
+        loss_test = np.ones((va_len, 1))
+
+        for i, data in enumerate(valid_loader):
+            sample_x, sample_y = data
+
+            # LongTensor
+            test_x = sample_x.type(torch.LongTensor)
+            # FloatTensor
+            test_y = sample_y.type(torch.FloatTensor)
+
+            # device
+            test_x = test_x.to(device).long()
+            test_y = test_y.to(device)
+
+            # output
+            output = model(test_x)
+
+            # loss
+            loss = criterion(output, test_y)
+            loss_test[i] = loss.detach().cpu().numpy()
+
+        loss_val[epoch] = np.mean(loss_test)
+        # save model if it reduces the loss
+        if loss_val[epoch] == np.min(loss_val):
+            torch.save(model.state_dict(), args.model_path)
+
+        print("Validation errors for epoch %d: %f ,  took time: %f" % (epoch, loss_val[epoch], elapsed))
+
+
+# evaluate
+def evaluate(text_list):
+    sequence_length = args.sequence_length
+    num_classes = args.num_classes
+    vocab_size = len(tokenizer.word_index) + 1
+    embedding_dim = args.embedding_dim
+    cell_type = args.cell_type
+    input_size = args.input_size
+    hidden_size = args.hidden_size
+    num_layers = args.num_layers
+    bidirectional = args.bidirectional
+    dropout = args.dropout
+    batch_first = args.batch_first
+    bias = args.bias
+    epochs = args.num_epochs
+
+    # vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
+    model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
+                  hidden_size=hidden_size, num_layers=num_layers,
+                  bidirectional=bidirectional, dropout=dropout,
+                  batch_first=batch_first, bias=bias)
+
+    model.load_state_dict(torch.load(args.model_path))
+    model.to(device)
+
+    # tokinizer
+    test = pad_sequences(tokenizer.texts_to_sequences(text_list), maxlen=args.sequence_length)
+    test = torch.from_numpy(test)
+    # batch generate
+    def get_batches(X, n_batches=20):
+        batch_size = len(X) // n_batches
+        for i in range(0, n_batches * batch_size, batch_size):
+            if i != (n_batches - 1) * batch_size:
+                x = X[i:i + n_batches]
+            else:
+                x = X[i:]
+            yield x
+    # evaluate
+    if len(test) // batch_size > 0:
+        for i, x in enumerate(get_batches(test, batch_size)):
+            outputs = model(x)
+            _, outputs = torch.max(outputs,1)
+            outputs = outputs.detach().cpu().numpy()
+            for i in range(len(outputs)):
+                print(f"{text_list[i]}   :  {float(outputs[i])}")
+
+    else:
+        outputs = model(test)
+        _, outputs = torch.max(outputs,1)
+        outputs = outputs.detach().cpu().numpy()
+        for i in range(len(outputs)):
+            print(f"{text_list[i]}   :  {float(outputs[i])}")
+
+
+# Main
+if __name__ == "__main__":
+    train()
+    evaluate(["I love you", "I want to hit someone", "fuck you bitch"])
