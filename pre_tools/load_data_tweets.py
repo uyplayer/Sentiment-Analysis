@@ -99,3 +99,5 @@ def return_data(rate=1):
 
     return train_x, train_y, test_x, test_y
 
+def return_bert_data():
+    return tweets
