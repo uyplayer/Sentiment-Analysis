@@ -72,7 +72,10 @@ NEUTRAL = "NEUTRAL"
 
 # model PARAMS
 parser = argparse.ArgumentParser()
-parser.add_argument('-bc', '--batch_size', type=int,default=100,help='bact size of input')
+'''
+i tried diffrent batch size , when small batch size , it is out of cuda memory , when i use batchize 1000 ; it is no problom
+'''
+parser.add_argument('-bc', '--batch_size', type=int,default=1024,help='bact size of input')
 parser.add_argument('-sl', '--sequence_length', type=int,default=300,help='sequence lenght of a sentense')
 parser.add_argument('-sd', '--seed', type=int,default=60,help='param of random seed')
 parser.add_argument('-ts', '--train_size', type=float,default=0.8,help='size of train data set')
@@ -80,6 +83,7 @@ parser.add_argument('-epos', '--epochs', type=int,default=30,help='training epoc
 parser.add_argument('-mn', '--model_name', type=str,default='bert-base-uncased',help=' model name we are going to use ')
 parser.add_argument('-tosa', '--token_save_path', type=str,default='../model_files/Sentiment140 dataset with 1.6 million '
                                                            'tweets/BERT_tweets_tokens.pth',help='path of saving token files')
+parser.add_argument('-trainnm', '--huggingroot', type=str,default='huggingface/pytorch-transformers',help=' huggingface root')
 args = parser.parse_args()
 
 # random seed
@@ -94,8 +98,9 @@ torch.backends.cudnn.deterministic = True
 # device = torch.device("cpu")
 is_available = torch.cuda.is_available()
 device = torch.device("cuda:0" if is_available else "cpu")
-print(" device is : ",device)
+
 if is_available:
+    print(" device is : ", device)
     print(" GPU is avaliable")
     num_gpu = torch.cuda.device_count()
     print(" number of GPU is : ",num_gpu)
@@ -104,6 +109,7 @@ if is_available:
 
 else:
     print(" GPU is not avaliable ")
+    print(" device is : ", device)
 
 # get data
 data = return_bert_data()
@@ -120,14 +126,6 @@ encoder = LabelEncoder()
 encoder.fit(target.tolist())
 
 labels = encoder.transform(target.tolist())
-
-
-
-# tokenizer
-tokenizer = BertTokenizer.from_pretrained(args.model_name)
-
-# model
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=2)
 
 # pandas to list
 text = text.tolist()
@@ -149,10 +147,14 @@ def get_batches(X,Y, n_batches=20):
             x = X[i:]
             y = Y[i:]
         yield x, y
-
+##################################################  No fine tuned   ##########################################################
 def run_only():
 
-    # opt
+    # tokenizer
+    tokenizer = BertTokenizer.from_pretrained(args.model_name)
+
+    # model
+    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=2)
 
     optimizer = AdamW(model.parameters(), lr=1e-5)
     no_decay = ['bias', 'LayerNorm.weight']
@@ -183,9 +185,113 @@ def run_only():
             optimizer.step()
             print(loss.item())
 
+##################################################  No fine tuned  ended ##########################################################
+
+# my model
+# my model
+class Model(nn.Module):
+    def __init__(self,input_size):
+        super(Model, self).__init__()
+
+        self.input_size = input_size
+        self.fc1 = nn.Linear(in_features=self.input_size, out_features=100)
+        self.fc2 = nn.Linear(in_features=100, out_features=1)
+        self.sig = nn.Sigmoid()
+
+    def forward(self,text):
+        text = text.clone().detach()
+        text = text.to(device)
+        l1 = self.fc1(text)
+        l2 = self.fc2(l1)
+        sig = self.sig(l2)
+        return sig
+
+
+# get feature from pre-training model
+def pmodel_features(x,tokenizer,model):
+
+    # tokenizer
+    output_token = tokenizer(x, padding=True, truncation=True, return_tensors="pt")
+    input_ids = output_token['input_ids'].to(device)
+    attention_mask = output_token['attention_mask'].to(device)
+
+    # just check the the sentence
+    # decoded_sequence = tokenizer.decode(input_ids[0])
+    # print(decoded_sequence)
+
+    # we donot need to calculate grad
+
+    with torch.no_grad():
+        # https://huggingface.co/transformers/model_doc/bart.html#transformers.BartModel.forward
+        outputs = model(input_ids, attention_mask=attention_mask)
+        last_hidden_states = outputs.last_hidden_state
+        # print(last_hidden_states.shape) # [100, 33, 768]
+        features = last_hidden_states[:, 0, :]  # only use the first position for feature
+        # print(features.shape) # [100, 768]
+    return features
+
+
+
 # using bert model and adding cusiimized one at end ; it needs to calcilating gred , because we using external model at the end
 def train():
-    pass
+
+    # model
+    model = Model(input_size=768)
+    model.to(device)
+
+    # optimizer
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-2)
+
+
+    # load pre trained
+    # load tokenizer
+    tokenizer = torch.hub.load(args.huggingroot, 'tokenizer',
+                               args.model_name)
+    # config
+    config = torch.hub.load(args.huggingroot, 'config', args.model_name)
+    config.output_attentions = True
+    config.output_hidden_states = True
+
+    # load model
+    model_pre = torch.hub.load(args.huggingroot, 'model', args.model_name, config=config)
+    model_pre.to(device)
+
+    # Epoch
+    for epoch in range(args.epochs):
+
+        # shuffle
+        shuf_train_X, shuf_train_y = shuffle(train_X, train_y, random_state=0)
+
+        # only using one bert model , because we using only bert model and at the end do not have external model , so we donot need calcilating gred
+        for i, (x, y) in enumerate(get_batches(shuf_train_X, shuf_train_y, args.batch_size)):
+
+            # shuffle
+            x_shuf, y_shuf = shuffle(x, y, random_state=0)
+            features = pmodel_features(x_shuf,tokenizer,model_pre)
+
+            # gred to zero
+            optimizer.zero_grad()
+
+            # output
+            output = model(features)
+            # print(output.shape) # [100, 1]
+
+            # loss
+            y_shuf = torch.Tensor(y_shuf)
+            y_shuf = y_shuf.unsqueeze(1)
+            y_shuf = y_shuf.to(device)
+            loss = criterion(output, y_shuf)
+
+            # optimizer
+            loss.backward()
+            optimizer.step()
+
+            print(" loss : ",loss.item())
+
+
+
+
 
 if __name__ == "__main__":
-    run_only()
+    train()
