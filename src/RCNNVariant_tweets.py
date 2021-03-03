@@ -14,6 +14,7 @@ import re
 import string
 import time
 import argparse
+import json
 # data
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 # Pytorch
 import torch
 import torch.nn as nn
@@ -53,8 +55,7 @@ parser.add_argument('-ne', '--neutral', type=str,default="NEUTRAL")
 parser.add_argument('-sq_len', '--sequence_length', type=int, default=100, help='Max sentence length in ''train/test '
                                                                                 'data (''Default: 50)')
 parser.add_argument('-embed_dim', '--embedding_dim', type=int, default=200, help='word_embedding_dim')
-parser.add_argument('-mf', '--model_path',type=str,default='../model_files/Sentiment140 dataset with 1.6 million '
-                                                           'tweets/RCNNVariant_tweets.pth', help='model file saving dir')
+parser.add_argument('-mf', '--model_path',type=str,default='./model_files/Sentiment140 dataset with 1.6 million tweets/RCNNVariant_tweets.pth', help='model file saving dir')
 parser.add_argument('-ct', '--cell_type',type=str,default='LSTM', help='cell type RNN LSTM GRU')
 parser.add_argument("--hidden_size", type=int, default=200, help="Size of hidden layer (Default: 512)")
 parser.add_argument("--input_size", type=int,default=200, help="input_size of cell")
@@ -68,7 +69,7 @@ parser.add_argument('-batch_first', '--batch_first', type=bool, default=True, he
 parser.add_argument('-bias', '--bias', type=bool, default=True, help='bias')
 # Training parameters
 parser.add_argument("--batch_size", type=int, default=64, help="Batch Size (Default: 64)")
-parser.add_argument("--num_epochs", type=int, default=20, help="Number of training epochs (Default: 10)")
+parser.add_argument("--num_epochs", type=int, default=30, help="Number of training epochs (Default: 10)")
 parser.add_argument("--display_every", type=int, default=10, help="Number of iterations to display training info.")
 parser.add_argument("--evaluate_every", type=int, default=100, help="Evaluate model on dev set after this many steps")
 parser.add_argument("--checkpoint_every", type=int, default=100, help="Save model after this many steps")
@@ -105,8 +106,8 @@ encoder.fit(train_y.tolist())
 y_train = encoder.transform(train_y.tolist())
 y_test = encoder.transform(test_y.tolist())
 # convert to [] mode
-y_train = [[0, 1] if item == 1 else [1, 0] for item in y_train]
-y_test = [[0, 1] if item == 1 else [1, 0] for item in y_test]
+# y_train = [[0, 1] if item == 1 else [1, 0] for item in y_train]
+# y_test = [[0, 1] if item == 1 else [1, 0] for item in y_test]
 # convert to numpy
 y_train = np.array(y_train)
 y_test = np.array(y_test)
@@ -133,7 +134,7 @@ valid_loader = DataLoader(valid_data, shuffle=True, batch_size=batch_size)
 # vocab size
 vocab_size = len(tokenizer.word_index) + 1
 
-# Model
+# save_models
 class Model(nn.Module):
     def __init__(self, vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,
                  dropout, batch_first, bias):
@@ -175,10 +176,10 @@ class Model(nn.Module):
         self.avpool = nn.AvgPool2d(2, 2)
 
         # fullconnect
-        self.full = nn.Linear(6400, 2)
+        self.full = nn.Linear(6400, 1)
 
         # softmax
-        self.sf = nn.Softmax(dim=1)
+        self.sf = nn.Sigmoid()
 
     def forward(self, text):
 
@@ -259,7 +260,7 @@ class Model(nn.Module):
 # bias = args.bias
 #
 # # vocab_size, embedding_dim, cell_type, input_size, hidden_size, num_layers, bidirectional,dropout, batch_first, bias
-# model = Model(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
+# model = save_models(vocab_size=vocab_size, embedding_dim=embedding_dim, cell_type=cell_type, input_size=input_size,
 #               hidden_size=hidden_size, num_layers=num_layers,
 #               bidirectional=bidirectional, dropout=dropout,
 #               batch_first=batch_first, bias=bias)
@@ -293,9 +294,9 @@ def train():
     # device
     model = model.to(device)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-
+    criterion = nn.SmoothL1Loss()
+    # optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # validate loss
     loss_val = np.ones((epochs, 1)) * np.inf
 
@@ -317,6 +318,7 @@ def train():
             # device
             train_x = train_x.to(device).long()
             train_y = train_y.to(device)
+            train_y = train_y.view(-1, 1)
 
             # output
             output = model(train_x)
@@ -324,14 +326,14 @@ def train():
             # loss
             loss = criterion(output, train_y)
 
-            _, out_index = torch.max(output, 1)
-            _, train_y_index = torch.max(train_y, 1)
+            # _, out_index = torch.max(output, 1)
+            # _, train_y_index = torch.max(train_y, 1)
 
-            out_index = out_index.detach().cpu().numpy()
-            train_y_index = train_y_index.detach().cpu().numpy()
+            # out_index = out_index.detach().cpu().numpy()
+            # train_y_index = train_y_index.detach().cpu().numpy()
 
             # accuracy
-            accuracy = accuracy_score(train_y_index, out_index)
+            accuracy = ((output > 0.5).type(torch.uint8) == train_y).float().mean().item()
 
             # running
             running_loss += loss.item()
@@ -346,9 +348,20 @@ def train():
                                                                                               accuracy, elapsed))
 
             # display_every
-            if i == args.display_every:
-                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / args.display_every,
-                                                                               running_accuracy/args.display_every)))
+            if i == 20:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 21,
+                                                                               running_accuracy / 21)))
+                epoch_accuracy = accuracy_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                precision = precision_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                recall = recall_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu(), average='micro')
+                f1 = f1_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu())
+                dictio = {"epoch": epoch + 1, "epoch_loss": running_loss / 21,
+                          "epoch_accuracy": running_accuracy / 21, "accuracy": epoch_accuracy, "precision": precision,
+                          "recall": recall, "f1": f1}
+                print(dictio)
+                with open("./results/RCNNVariant.txt", "a+") as file:
+                    file.write(json.dumps(dictio) + "\n")
+
                 running_loss = 0.0
                 running_accuracy = 0.0
 

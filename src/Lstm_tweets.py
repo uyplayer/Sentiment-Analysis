@@ -17,12 +17,14 @@ https://realpython.com/python-keras-text-classification/
 import time
 import numpy as np
 import pandas as pd
+import json
 # Scikit-learn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from sklearn.manifold import TSNE
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 # Keras
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
@@ -57,7 +59,7 @@ W2V_EPOCH = 32
 W2V_MIN_COUNT = 10
 # KERAS
 SEQUENCE_LENGTH = 300
-EPOCHS = 8
+EPOCHS = 30
 BATCH_SIZE = 1024
 # SENTIMENT
 POSITIVE = "POSITIVE"
@@ -233,8 +235,8 @@ def train():
     model = model.to(device)
 
     criterion = nn.SmoothL1Loss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-2)
-
+    # optimizer = optim.Adam(model.parameters(), lr=1e-2)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # validate loss
     loss_val = np.ones((epochs,1)) * np.inf
 
@@ -277,8 +279,19 @@ def train():
 
             # each 20
             if i == 20:
-                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 20,
-                                                                               running_accuracy / 20)))
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 21,
+                                                                               running_accuracy / 21)))
+                epoch_accuracy = accuracy_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                precision = precision_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                recall = recall_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu(), average='micro')
+                f1 = f1_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu())
+                dictio = {"epoch": epoch + 1, "epoch_loss": running_loss / 21,
+                          "epoch_accuracy": running_accuracy / 21, "accuracy": epoch_accuracy, "precision": precision,
+                          "recall": recall, "f1": f1}
+                print(dictio)
+                with open("./results/Lstm.txt", "a+") as file:
+                    file.write(json.dumps(dictio) + "\n")
+
                 running_loss = 0.0
                 running_accuracy = 0.0
 
@@ -344,6 +357,6 @@ def evaluate(text_list):
 # Main
 if __name__ == "__main__":
     train()
-    evaluate(["I love playing game","i can not play game"])
+    # evaluate(["I love you","I want to hit someone","go to hill shit","I will kill you"])
 
 

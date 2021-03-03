@@ -25,6 +25,7 @@ import string
 import time
 import random
 import argparse
+import json
 # data
 import numpy as np
 import pandas as pd
@@ -33,6 +34,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import shuffle
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 # Pytorch
 import torch
 import torch.nn as nn
@@ -61,8 +63,8 @@ from keras.preprocessing.sequence import pad_sequences
 # pre_tools
 from pre_tools.load_data_tweets import return_bert_data
 # warnings
-# import warnings
-# warnings.filterwarnings("ignore")
+import warnings
+warnings.filterwarnings("ignore")
 
 
 # SENTIMENT
@@ -240,9 +242,9 @@ def train():
     model.to(device)
 
     # optimizer
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-2)
-
+    criterion = nn.SmoothL1Loss()
+    # optimizer = optim.Adam(model.parameters(), lr=1e-2)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     # load pre trained
     # load tokenizer
@@ -259,6 +261,10 @@ def train():
 
     # Epoch
     for epoch in range(args.epochs):
+
+        running_loss = 0.0
+        running_accuracy = 0.0
+        t = time.time()
 
         # shuffle
         shuf_train_X, shuf_train_y = shuffle(train_X, train_y, random_state=0)
@@ -282,16 +288,38 @@ def train():
             y_shuf = y_shuf.unsqueeze(1)
             y_shuf = y_shuf.to(device)
             loss = criterion(output, y_shuf)
+            accuracy = ((output > 0.5).type(torch.uint8) == y_shuf).float().mean().item()
 
-            # optimizer
+            # running
+            running_loss += loss.item()
+            running_accuracy += accuracy
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            elapsed = time.time() - t
 
-            print(" loss : ",loss.item())
+            print("Errors for epoch %d, batch %d loss: %f, accuracy : %f ,  took time: %f" % (epoch, i, loss.item(),
+                                                                                              accuracy, elapsed))
 
 
+            # each 20
+            if i == 20:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 21,
+                                                                               running_accuracy / 21)))
+                epoch_accuracy = accuracy_score(y_shuf.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                precision = precision_score(y_shuf.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                recall = recall_score(y_shuf.cpu(), ((output > 0.5).type(torch.uint8)).cpu(), average='micro')
+                f1 = f1_score(y_shuf.cpu(), ((output > 0.5).type(torch.uint8)).cpu())
+                dictio = {"epoch": epoch + 1, "epoch_loss": running_loss / 21,
+                          "epoch_accuracy": running_accuracy / 21, "accuracy": epoch_accuracy, "precision": precision,
+                          "recall": recall, "f1": f1}
+                print(dictio)
+                with open("./results/BERT.txt", "a+") as file:
+                    file.write(json.dumps(dictio) + "\n")
 
-
+                running_loss = 0.0
+                running_accuracy = 0.0
 
 if __name__ == "__main__":
     train()

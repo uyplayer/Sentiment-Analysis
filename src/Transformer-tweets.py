@@ -40,7 +40,6 @@ from pre_tools.load_data_tweets import return_data
 
 
 # dependency library
-from __future__ import print_function
 # system
 import os
 import re

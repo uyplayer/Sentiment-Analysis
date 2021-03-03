@@ -6,9 +6,22 @@
 # @File    : test.py
 # @Software: PyCharm
 
-import torch
-import torch.nn as nn
-import numpy as np
+from sklearn import metrics
+
+y_true = [0, 1, 2, 0, 1, 2]
+y_pred = [0, 2, 1, 0, 0, 1]
+
+y_true_1 = [0, 1, 2, 0, 1, 2]
+y_pred_1 = [0, 2, 3, 0, 0, 1]
+
+y_true_2 = [0, 1, 2, 0, 1, 2]
+y_pred_2 = [0, 1, 1, 0, 0, 1]
+
+
+print(metrics.precision_score(y_true, y_pred, average='macro'))
+print(metrics.precision_score(y_true_1, y_pred_1, average='macro'))
+print(metrics.precision_score(y_true_2, y_pred_2, average='macro'))
+
 
 
 

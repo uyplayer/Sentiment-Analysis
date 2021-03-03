@@ -13,6 +13,7 @@ import os
 import re
 import string
 import time
+import json
 # data
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 # Pytorch
 import torch
 import torch.nn as nn
@@ -56,7 +58,7 @@ W2V_EPOCH = 32
 W2V_MIN_COUNT = 10
 # KERAS
 SEQUENCE_LENGTH = 300
-EPOCHS = 20
+EPOCHS = 30
 BATCH_SIZE = 1024
 # SENTIMENT
 POSITIVE = "POSITIVE"
@@ -64,7 +66,7 @@ NEGATIVE = "NEGATIVE"
 NEUTRAL = "NEUTRAL"
 SENTIMENT_THRESHOLDS = (0.4, 0.7)
 # MODEL PATH
-MODEL_PATH = "../model_files/Sentiment140 dataset with 1.6 million tweets/TextAttBiRNN-tweets.pth"
+MODEL_PATH = "./model_files/Sentiment140 dataset with 1.6 million tweets/TextAttBiRNN-tweets.pth"
 
 # GPU check
 # device = torch.device("cpu")
@@ -194,7 +196,7 @@ class Model(nn.Module):
 # batch_size = 1
 # vocab_size = vocab_size
 #
-# model = Model(input_size = input_size,hidden_dim = hidden_dim ,LSTM_layers = LSTM_layers,batch_size = batch_size,
+# model = save_models(input_size = input_size,hidden_dim = hidden_dim ,LSTM_layers = LSTM_layers,batch_size = batch_size,
 #               vocab_size = vocab_size)
 # model.to(device)
 # input = torch.randint(1,100, (1,300))
@@ -216,9 +218,9 @@ def train():
     # device
     model = model.to(device)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-2)
-
+    criterion = nn.SmoothL1Loss()
+    # optimizer = optim.Adam(model.parameters(), lr=1e-2)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # validate loss
     loss_val = np.ones((epochs, 1)) * np.inf
 
@@ -243,6 +245,7 @@ def train():
 
             # output
             output = model(train_x)
+
             # change demintion
             train_y = train_y.view(-1, 1)
 
@@ -263,11 +266,22 @@ def train():
                                                                                               accuracy, elapsed))
 
             # each 20
-            if i == len(train_loader)-1:
-                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / len(train_loader),
-                                                                               running_accuracy/len(train_loader))))
+            if i == 20:
+                print("[%d, %5d] epoch_loss : %.3f  epoch_accuracy : %.3f" % ((epoch + 1, i + 1, running_loss / 21,
+                                                                               running_accuracy / 21)))
+                epoch_accuracy = accuracy_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                precision = precision_score(train_y.cpu(), ((output > 0.5).type(torch.uint8).cpu()))
+                recall = recall_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu(), average='micro')
+                f1 = f1_score(train_y.cpu(), ((output > 0.5).type(torch.uint8)).cpu())
+                dictio = {"epoch": epoch + 1, "epoch_loss": running_loss / 21,
+                          "epoch_accuracy": running_accuracy / 21, "accuracy": epoch_accuracy, "precision": precision,
+                          "recall": recall, "f1": f1}
+                print(dictio)
+                with open("./results/TextAttBiRNN.txt", "a+") as file:
+                    file.write(json.dumps(dictio) + "\n")
+
                 running_loss = 0.0
-                running_accuracy =0.0
+                running_accuracy = 0.0
 
 
         # validate  valid_loader
@@ -343,5 +357,5 @@ def evaluate(text_list):
 
 # Main
 if __name__ == "__main__":
-    # train()
+    train()
     evaluate(["I love you","I want to hit someone","go to hill shit","I will kill you"])
